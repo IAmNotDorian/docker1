@@ -1,0 +1,63 @@
+on: [push]
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+    
+    - uses: actions/checkout@master
+    
+    - uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: Create ACR
+      id: create-acr
+      run: |
+        az acr create -n fuckg -g fuckgb02d-rg --location "Canada Central" --sku Premium --admin-enabled
+        echo "::set-output name=acr_username::`az acr credential show -n fuckg --query username | xargs`"
+        echo "::set-output name=acr_password::`az acr credential show -n fuckg --query passwords[0].value | xargs`"
+        echo "::add-mask::`az acr credential show -n fuckg --query passwords[0].value | xargs`"
+
+    - uses: azure/docker-login@v1
+      with:
+        login-server: fuckg.azurecr.io
+        username: ${{ steps.create-acr.outputs.acr_username }}
+        password: ${{ steps.create-acr.outputs.acr_password }}
+
+    - name: Build and push image to ACR
+      id: build-image
+      run: |
+        docker build "$GITHUB_WORKSPACE/" -f  "Dockerfile" -t fuckg.azurecr.io/manhkeyvo:${{ github.sha }}
+        docker push fuckg.azurecr.io/manhkeyvo:${{ github.sha }}
+    
+    - uses: azure/k8s-set-context@v1
+      id: login
+      with:
+         kubeconfig: ${{ secrets.aks_manhkeyvo_kubeConfig }}
+    
+    - name: Create namespace
+      run: |
+        namespacePresent=`kubectl get namespace | grep manhkeyvoc8eb | wc -l`
+        if [ $namespacePresent -eq 0 ]
+        then
+            echo `kubectl create namespace manhkeyvoc8eb`
+        fi
+
+    - uses: azure/k8s-create-secret@v1
+      with:
+        namespace: manhkeyvoc8eb
+        container-registry-url: fuckg.azurecr.io
+        container-registry-username: ${{ steps.create-acr.outputs.acr_username }}
+        container-registry-password: ${{ steps.create-acr.outputs.acr_password }}
+        secret-name: manhkeyvodockerauth
+       
+    - uses: azure/k8s-deploy@v1
+      with:
+        namespace: manhkeyvoc8eb
+        manifests: |
+          manifests/deployment.yml
+          manifests/service.yml
+        images: |
+          fuckg.azurecr.io/manhkeyvo:${{ github.sha }}
+        imagepullsecrets: |
+          manhkeyvodockerauth
