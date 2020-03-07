@@ -1,0 +1,16 @@
+apiVersion : apps/v1beta1
+kind: Deployment
+metadata:
+  name: "manhkeyvo"
+spec:
+  replicas: 2
+  template:
+    metadata:
+      labels:
+        app: "manhkeyvo"
+    spec:
+      containers:
+        - name: "manhkeyvo"
+          image: "fuckg.azurecr.io/manhkeyvo"
+          ports:
+          - containerPort: 80
